@@ -51,7 +51,6 @@ def main_menu():
 def back_btn():
     return {"keyboard": [[{"text": "🔙 بازگشت به منوی اصلی"}]], "resize_keyboard": True}
 
-# --- ساخت متن آماری برای داخل بازو ---
 def get_stats_text(q, opts, votes_list):
     total = sum(votes_list)
     text = f"📊 **{q}**\n\n"
@@ -102,7 +101,6 @@ def home():
             bot_api("sendMessage", {"chat_id": cid, "text": "📢 آیدی کانال را بفرستید (مثال: @wamsara):\n⚠️ حتماً بازو را ابتدا ادمین کانال کنید.", "reply_markup": back_btn()})
             return "ok", 200
 
-        # --- مدیریت مراحل ---
         state = user_state.get(uid)
         if state:
             if state["step"] == "get_q" and txt:
@@ -115,16 +113,15 @@ def home():
                     "reply_markup": {"inline_keyboard": [[{"text": "🏁 پایان و ثبت", "callback_data": "finish"}]]}})
             elif state["step"] == "get_ch" and txt:
                 ch_id = txt.strip()
-                # بررسی ادمین بودن
                 res = bot_api("getChatMember", {"chat_id": ch_id, "user_id": int(TOKEN.split(":")[0])})
                 if res and res.status_code == 200:
                     conn = sqlite3.connect("bot_data.db")
                     conn.cursor().execute("INSERT OR REPLACE INTO channels VALUES (?, ?)", (uid, ch_id))
                     conn.commit() ; conn.close()
                     user_state[uid] = None
-                    bot_api("sendMessage", {"chat_id": cid, "text": f"✅ کانال {ch_id} با موفقیت متصل شد.", "reply_markup": main_menu()})
+                    bot_api("sendMessage", {"chat_id": cid, "text": f"✅ کانال {ch_id} متصل شد.", "reply_markup": main_menu()})
                 else:
-                    bot_api("sendMessage", {"chat_id": cid, "text": "❌ خطا! بازو در این کانال ادمین نیست یا آیدی اشتباه است."})
+                    bot_api("sendMessage", {"chat_id": cid, "text": "❌ خطا! بازو ادمین نیست."})
             elif state["step"] == "wait_img" and "photo" in msg:
                 state["img"] = msg["photo"][-1]["file_id"]
                 save_final(uid, cid)
@@ -165,7 +162,7 @@ def home():
             conn = sqlite3.connect("bot_data.db")
             conn.cursor().execute("DELETE FROM polls WHERE id=?", (pid,))
             conn.commit() ; conn.close()
-            bot_api("sendMessage", {"chat_id": cid, "text": "🗑 نظرسنجی حذف شد.", "reply_markup": main_menu()})
+            bot_api("sendMessage", {"chat_id": cid, "text": "🗑 حذف شد.", "reply_markup": main_menu()})
 
         elif data.startswith("vote_"):
             handle_vote(cq)
@@ -176,7 +173,7 @@ def save_final(uid, cid):
     s = user_state[uid]
     conn = sqlite3.connect("bot_data.db")
     conn.cursor().execute("INSERT INTO polls (creator_id, question, options, votes, voters, img_id) VALUES (?,?,?,?,?,?)",
-        (uid, s["q"], json.dumps(s["opts"], ensure_ascii=False), json.dumps([0]*len(s["opts"])), "[]", s.get("img")))
+        (uid, s["q"], json.dumps(s["opts"], ensure_ascii=False), json.dumps([0]*len(s["opts"])), "{}", s.get("img")))
     conn.commit() ; conn.close()
     user_state[uid] = None
     bot_api("sendMessage", {"chat_id": cid, "text": "✅ نظرسنجی ذخیره شد.", "reply_markup": main_menu()})
@@ -200,7 +197,7 @@ def show_preview(cid, uid, pid):
     conn.close()
     if p:
         q, opts, img = p[0], json.loads(p[1]), p[2]
-        text = f"📊 **{q}**\n\n" + "\n".join([f"▫️ {o}" for o in opts]) + f"\n\n━━━━━━━━━━━━\n🤖 @PollFarsiBot"
+        text = f"📊 **{q}**\n\n━━━━━━━━━━━━\n🤖 @PollFarsiBot"
         btns = [[{"text": "🚀 تایید و انتشار در کانال", "callback_data": f"pub_{pid}"}]]
         if img: bot_api("sendPhoto", {"chat_id": cid, "photo": img, "caption": text, "reply_markup": {"inline_keyboard": btns}})
         else: bot_api("sendMessage", {"chat_id": cid, "text": text, "reply_markup": {"inline_keyboard": btns}})
@@ -211,13 +208,13 @@ def publish_to_channel(cid, uid, pid):
     c.execute("SELECT channel_id FROM channels WHERE user_id=?", (uid,))
     ch = c.fetchone()
     if not ch:
-        bot_api("sendMessage", {"chat_id": cid, "text": "❌ ابتدا از منو، کانال را متصل کنید."})
+        bot_api("sendMessage", {"chat_id": cid, "text": "❌ ابتدا کانال را متصل کنید."})
         return
     c.execute("SELECT question, options, img_id FROM polls WHERE id=?", (pid,))
     p = c.fetchone()
     conn.close()
     q, opts, img = p[0], json.loads(p[1]), p[2]
-    text = f"📊 **{q}**\n\n" + "\n".join([f"▫️ {o}" for o in opts]) + f"\n\n━━━━━━━━━━━━\n🤖 @PollFarsiBot"
+    text = f"📊 **{q}**\n\n━━━━━━━━━━━━\n🤖 @PollFarsiBot"
     btns = [[{"text": str(o), "callback_data": f"vote_{pid}_{i}"}] for i, o in enumerate(opts)]
     if img: bot_api("sendPhoto", {"chat_id": ch[0], "photo": img, "caption": text, "reply_markup": {"inline_keyboard": btns}})
     else: bot_api("sendMessage", {"chat_id": ch[0], "text": text, "reply_markup": {"inline_keyboard": btns}})
@@ -226,20 +223,33 @@ def publish_to_channel(cid, uid, pid):
 def handle_vote(cq):
     uid, data = str(cq["from"]["id"]), cq["data"]
     _, pid, idx = data.split("_")
+    idx = int(idx)
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
-    c.execute("SELECT votes, voters FROM polls WHERE id=?", (pid,))
+    c.execute("SELECT question, options, votes, voters FROM polls WHERE id=?", (pid,))
     r = c.fetchone()
     if r:
-        votes, voters = json.loads(r[0]), json.loads(r[1])
-        if uid in voters:
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "⚠️ قبلاً رأی داده‌اید!", "show_alert": True})
-        else:
-            votes[int(idx)] += 1
-            voters.append(uid)
-            c.execute("UPDATE polls SET votes=?, voters=? WHERE id=?", (json.dumps(votes), json.dumps(voters), pid))
-            conn.commit()
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "✅ رأی ثبت شد."})
+        q, opts_raw, votes, voters_raw = r[0], r[1], json.loads(r[2]), json.loads(r[3])
+        opts = json.loads(opts_raw)
+        
+        # ثبت یا تغییر رای
+        old_idx = voters_raw.get(uid)
+        if old_idx is not None:
+            if old_idx == idx:
+                bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "✅ قبلاً به این گزینه رأی داده‌اید."})
+                conn.close() ; return
+            votes[old_idx] -= 1
+        
+        votes[idx] += 1
+        voters_raw[uid] = idx
+        
+        c.execute("UPDATE polls SET votes=?, voters=? WHERE id=?", (json.dumps(votes), json.dumps(voters_raw), pid))
+        conn.commit()
+        
+        # فیدبک بصری: نمایش تیک سبز در لحظه کلیک
+        selected_text = opts[idx]
+        bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": f"✅ رأی شما به '{selected_text}' ثبت شد."})
+    
     conn.close()
 
 if __name__ == "__main__":
