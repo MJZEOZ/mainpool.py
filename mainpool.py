@@ -10,6 +10,7 @@ app = Flask(__name__)
 TOKEN = os.environ.get("BOT_TOKEN") 
 BASE_URL = f"https://tapi.bale.ai/bot{TOKEN}"
 REQUIRED_CHANNEL = "@wamsara"
+CHANNEL_LINK = "https://ble.ir/wamsara"
 
 def init_db():
     conn = sqlite3.connect('bot_data.db')
@@ -55,7 +56,7 @@ def receive_update():
             user_state[user_id] = None
             bot_api("sendMessage", {
                 "chat_id": chat_id, 
-                "text": "🌟 خوش آمدید.\nیکی از گزینه‌ها را انتخاب کنید:",
+                "text": "🌟 به ربات نظرسنجی خوش آمدید.\nیکی از گزینه‌های زیر را انتخاب کنید:",
                 "reply_markup": {
                     "keyboard": [[{"text": "🚀 ساخت نظرسنجی جدید"}], [{"text": "📊 نظرسنجی‌های من"}]],
                     "resize_keyboard": True
@@ -98,7 +99,7 @@ def handle_steps(chat_id, user_id, msg):
         img_id = msg["photo"][-1]["file_id"]
         save_poll(user_id, state["q"], state["opts"], img_id)
         user_state[user_id] = None
-        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ نظرسنجی تصویری ساخته شد."})
+        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ نظرسنجی تصویری با موفقیت ساخته شد."})
         show_my_polls(chat_id, user_id)
 
     elif state["step"] == "get_pub_channel":
@@ -119,10 +120,10 @@ def show_my_polls(chat_id, user_id):
     rows = cursor.fetchall()
     conn.close()
     if not rows:
-        bot_api("sendMessage", {"chat_id": chat_id, "text": "📭 لیست خالی است."})
+        bot_api("sendMessage", {"chat_id": chat_id, "text": "📭 شما هنوز نظرسنجی نساخته‌اید."})
         return
     btns = [[{"text": f"📋 {r[1][:20]}", "callback_data": f"rep_{r[0]}"}] for r in rows]
-    bot_api("sendMessage", {"chat_id": chat_id, "text": "📂 نظرسنجی‌های شما:", "reply_markup": {"inline_keyboard": btns}})
+    bot_api("sendMessage", {"chat_id": chat_id, "text": "📂 لیست نظرسنجی‌های شما:", "reply_markup": {"inline_keyboard": btns}})
 
 def handle_callbacks(cq):
     user_id = str(cq["from"]["id"])
@@ -131,12 +132,12 @@ def handle_callbacks(cq):
 
     if data == "finish_opts":
         if len(user_state.get(user_id, {}).get("opts", [])) < 2:
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "حداقل ۲ گزینه!", "show_alert": True})
+            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "حداقل ۲ گزینه لازم است!", "show_alert": True})
         else:
             user_state[user_id]["step"] = "get_img"
             bot_api("sendMessage", {
                 "chat_id": chat_id, 
-                "text": "📸 تصویر بفرستید یا رد کنید:", 
+                "text": "📸 اگر مایلید برای نظرسنجی تصویر بفرستید، در غیر این صورت روی دکمه زیر بزنید:", 
                 "reply_markup": {"inline_keyboard": [[{"text": "⏩ بدون تصویر", "callback_data": "skip_img"}]]}
             })
 
@@ -144,7 +145,7 @@ def handle_callbacks(cq):
         state = user_state[user_id]
         save_poll(user_id, state["q"], state["opts"])
         user_state[user_id] = None
-        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ ذخیره شد."})
+        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ نظرسنجی بدون تصویر ذخیره شد."})
         show_my_polls(chat_id, user_id)
 
     elif data.startswith("rep_"):
@@ -159,10 +160,14 @@ def handle_callbacks(cq):
 
     elif data.startswith("pub_"):
         if not check_membership(user_id):
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": f"باید عضو {REQUIRED_CHANNEL} باشید", "show_alert": True})
+            bot_api("sendMessage", {
+                "chat_id": chat_id, 
+                "text": f"⚠️ برای انتشار نظرسنجی باید عضو کانال زیر باشید:\n\n🆔 {REQUIRED_CHANNEL}\n🔗 {CHANNEL_LINK}"
+            })
+            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "عضویت الزامی است"})
         else:
             user_state[user_id] = {"step": "get_pub_channel", "p_id": data.split("_")[1]}
-            bot_api("sendMessage", {"chat_id": chat_id, "text": "📢 آیدی کانال (با @):"})
+            bot_api("sendMessage", {"chat_id": chat_id, "text": "📢 آیدی کانال مقصد را بفرستید (مثلاً @mychannel):"})
 
     elif data.startswith("v_"):
         process_vote(chat_id, user_id, cq)
@@ -183,7 +188,7 @@ def show_report(chat_id, user_id, p_id):
         
         btns = [
             [{"text": "🚀 انتشار در کانال", "callback_data": f"pub_{p_id}"}],
-            [{"text": "🔄 بروزرسانی", "callback_data": f"rep_{p_id}"}, {"text": "🗑 حذف", "callback_data": f"del_{p_id}"}]
+            [{"text": "🔄 بروزرسانی آمار", "callback_data": f"rep_{p_id}"}, {"text": "🗑 حذف", "callback_data": f"del_{p_id}"}]
         ]
         if img:
             bot_api("sendPhoto", {"chat_id": chat_id, "photo": img, "caption": report, "reply_markup": {"inline_keyboard": btns}})
@@ -203,12 +208,17 @@ def publish_now(chat_id, user_id, channel_id, p_id):
             bot_api("sendPhoto", {"chat_id": channel_id, "photo": img, "caption": q, "reply_markup": {"inline_keyboard": kb}})
         else:
             bot_api("sendMessage", {"chat_id": channel_id, "text": q, "reply_markup": {"inline_keyboard": kb}})
-        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ ارسال شد."})
+        bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ نظرسنجی با موفقیت در کانال منتشر شد."})
 
 def process_vote(chat_id, user_id, cq):
     if not check_membership(user_id):
-        bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "عضو کانال نیستید", "show_alert": True})
+        bot_api("sendMessage", {
+            "chat_id": user_id, 
+            "text": f"🚫 کاربر گرامی، برای ثبت رای باید ابتدا عضو کانال زیر شوید:\n\n🆔 {REQUIRED_CHANNEL}\n🔗 {CHANNEL_LINK}"
+        })
+        bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "ابتدا عضو کانال شوید", "show_alert": True})
         return
+    
     data = cq["data"].split("_")
     p_id, opt_idx = data[1], int(data[2])
     conn = sqlite3.connect('bot_data.db')
@@ -218,14 +228,14 @@ def process_vote(chat_id, user_id, cq):
     if row:
         voters = json.loads(row[3])
         if user_id in voters:
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "قبلاً رای داده‌اید."})
+            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "⚠️ شما قبلاً در این نظرسنجی رای داده‌اید.", "show_alert": True})
         else:
             votes = json.loads(row[2])
             votes[opt_idx] += 1
             voters.append(user_id)
             cursor.execute("UPDATE polls SET votes=?, voters=? WHERE id=?", (json.dumps(votes), json.dumps(voters), p_id))
             conn.commit()
-            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "رای ثبت شد."})
+            bot_api("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "✅ رای شما با موفقیت ثبت شد."})
     conn.close()
 
 if __name__ == "__main__":
