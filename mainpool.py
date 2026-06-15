@@ -26,13 +26,14 @@ user_state = {}
 
 def bot_api(method, data=None):
     try:
-        return requests.post(f"{BASE_URL}/{method}", json=data, timeout=10)
+        res = requests.post(f"{BASE_URL}/{method}", json=data, timeout=15)
+        return res
     except:
         return None
 
-def check_membership(user_id, chat_id=REQUIRED_CHANNEL):
+def check_membership(user_id):
     try:
-        res = bot_api("getChatMember", {"chat_id": chat_id, "user_id": int(user_id)})
+        res = bot_api("getChatMember", {"chat_id": REQUIRED_CHANNEL, "user_id": int(user_id)})
         if res and res.status_code == 200:
             status = res.json().get("result", {}).get("status")
             return status in ["member", "administrator", "creator"]
@@ -40,7 +41,6 @@ def check_membership(user_id, chat_id=REQUIRED_CHANNEL):
     return False
 
 def is_bot_admin(chat_id):
-    # بررسی اینکه آیا بازو در کانال مقصد دسترسی دارد یا خیر
     try:
         res = bot_api("getChat", {"chat_id": chat_id})
         return res and res.status_code == 200
@@ -82,7 +82,7 @@ def handle_steps(chat_id, user_id, msg):
     state = user_state[user_id]
     text = msg.get("text", "")
 
-    if state["step"] == "get_q":
+    if state["step"] == "get_q" and text:
         state.update({"q": text, "step": "get_opts"})
         bot_api("sendMessage", {"chat_id": chat_id, "text": "🟢 سوال ثبت شد. حالا گزینه‌ها را یکی‌یکی بفرستید:", "reply_markup": {"inline_keyboard": [[{"text": "✅ تایید نهایی گزینه‌ها", "callback_data": "finish_opts"}]]}})
     
@@ -95,37 +95,24 @@ def handle_steps(chat_id, user_id, msg):
         save_poll(user_id, state["q"], state["opts"], img_id)
         user_state[user_id] = None
         bot_api("sendMessage", {"chat_id": chat_id, "text": "✅ نظرسنجی تصویری ساخته شد."})
-        show_my_polls(, user_id)
+        show_my_polls(chat_id, user_id)
 
-    elif state["step"] == "get_pub_channel":
-        if not text.startswith("@"):
-            bot_api("sendMessage", {"chat_id": chat_id, "text": "⚠️ آیدی کانال باید با @ شروع شود. دوباره بفرستید:"})
+    elif state["step"] == "get_pub_channel" and text:
+    not text.startswith("@"):
+            bot_api("sendMessage", {"chat_id": chat_id, "text": "⚠️ آیدی کانال باید با @ شروع شود (مثلاً @wamsara):"})
             return
         
-        # مرحله بررسی ادمین بودن بازو در کانال مقصد
-        bot_api("sendMessage", {"chat_id": chat_id, "text": f"⏳ در حال بررسی دسترسی بازو به کانال {text}..."})
+        bot_api("sendMessage", {"chat_id": chat_id, "text": f"⏳ در حال بررسی دسترسی به {text}..."})
         if is_bot_admin(text):
             publish_now(chat_id, user_id, text, state["p_id"])
             user_state[user_id] = None
         else:
             bot_api("sendMessage", {
                 "chat_id": chat_id, 
-                "text": f"❌ خطای دسترسی!\n\nبازو هنوز در کانال {text} ادمین نشده است.\n\nلطفاً ابتدا بازو را در کانال خود ادمین کرده و سپس دوباره آیدی کانال را بفرستید:"
+                "text": f"❌ خطا: بازو در کانال {text} ادمین نیست!\n\nلطفاً بازو را در کانال مقصد ادمین کرده و مجدداً آیدی کانال را ارسال کنید:"
             })
 
 def save_poll(creator_id, q, opts, img_id=None):
     conn = sqlite3.connect('bot_data.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO polls (creator_id, question, options, votes, voters, img_id) VALUES (?, ?, ?, ?, ?, ?)",
-                   (creator_id, q, json.dumps(opts), json.dumps([0]*len(opts)), "[]", img_id))
-    conn.commit()
-    conn.close()
-
-def show_my_polls(chat_id, user_id):
-    conn = sqlite3.connect('bot_data.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, question FROM polls WHERE creator_id=?", (user_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows:
-        bot_
+    cursor.execute("INSERT INTO polls (creator_id, question, options, votes, voters, img_id)
